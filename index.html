@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>スマブラ MINI</title>
+    <style>
+        body { margin:0; overflow:hidden; background:#000; font-family:sans-serif; touch-action:none; }
+        canvas { display:block; }
+        #ui { position:absolute; top:0; left:0; width:100%; height:100%; pointer-events:none; z-index:10; }
+        #title { 
+            position:absolute; top:50%; left:50%; transform:translate(-50%,-50%);
+            color:#0ff; font-size:75px; font-weight:bold; text-shadow:0 0 40px #0ff;
+            border:8px solid #0ff; padding:35px 80px; border-radius:30px;
+            background:rgba(0,0,0,0.9); cursor:pointer; pointer-events:all;
+        }
+        .status { 
+            position:absolute; top:15px; color:white; font-size:21px; font-weight:bold; 
+            text-shadow:0 0 8px #000;
+        }
+        #p1status { left:20px; }
+        #cpustatus { right:20px; text-align:right; }
+
+        #movePad { 
+            position:absolute; bottom:25px; left:25px; width:130px; height:130px; 
+            background:rgba(0,255,255,0.18); border:5px solid rgba(0,255,255,0.7); 
+            border-radius:50%; pointer-events:all; z-index:20;
+        }
+    </style>
+</head>
+<body>
+    <canvas id="c"></canvas>
+    <div id="ui">
+        <div id="title">ＳＴＡＲＴ</div>
+        <div class="status" id="p1status">P1 0% (3)</div>
+        <div class="status" id="cpustatus">CPU 0% (3)</div>
+        <div id="movePad"></div>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('c');
+        const ctx = canvas.getContext('2d');
+        
+        let W = 1000;
+        let H = 600;
+        canvas.width = W;
+        canvas.height = H;
+
+        let p1 = { x:300, y:400, vx:0, vy:0, stocks:3, damage:0, facing:1, state:"idle", punchCount:0 };
+        let cpu = { x:700, y:400, vx:0, vy:0, stocks:3, damage:0, facing:-1, state:"idle" };
+
+        let keys = {};
+        let lastAttack = 0;
+        let gameRunning = false;
+
+        // ステージ（プラットフォーム）
+        let platforms = [];
+
+        function resize() {
+            W = window.innerWidth;
+            H = window.innerHeight;
+            canvas.width = W;
+            canvas.height = H;
+
+            // ブラウザサイズに合わせてステージ自動調整
+            platforms = [
+                {x: W*0.05, y: H*0.88, w: W*0.9, h: 30},     // 地面
+                {x: W*0.15, y: H*0.68, w: W*0.25, h: 20},
+                {x: W*0.63, y: H*0.68, w: W*0.25, h: 20},
+                {x: W*0.37, y: H*0.48, w: W*0.26, h: 20}
+            ];
+
+            if (!gameRunning) {
+                p1.x = W*0.3; p1.y = H*0.65;
+                cpu.x = W*0.7; cpu.y = H*0.65;
+            }
+        }
+        window.addEventListener('resize', resize);
+        resize();
+
+        function startGame() {
+            document.getElementById('title').style.display = 'none';
+            gameRunning = true;
+            resetCharacters();
+        }
+
+        function resetCharacters() {
+            p1.x = W*0.3; p1.y = H*0.65; p1.damage = 0; p1.stocks = 3; p1.punchCount = 0;
+            cpu.x = W*0.7; cpu.y = H*0.65; cpu.damage = 0; cpu.stocks = 3;
+        }
+
+        // タイトルクリック
+        document.getElementById('title').addEventListener('click', startGame);
+        document.getElementById('title').addEventListener('touchstart', e => { e.preventDefault(); startGame(); });
+
+        // 移動パッド
+        const movePad = document.getElementById('movePad');
+        movePad.addEventListener('touchmove', e => {
+            if (!gameRunning) return;
+            const t = e.touches[0];
+            const rect = movePad.getBoundingClientRect();
+            const dx = t.clientX - (rect.left + 65);
+            const dy = t.clientY - (rect.top + 65);
+
+            keys['a'] = dx < -20;
+            keys['d'] = dx > 20;
+            keys['k'] = dy < -25;
+        });
+        movePad.addEventListener('touchend', () => keys['a'] = keys['d'] = keys['k'] = false);
+
+        // 画面のどこでも攻撃（移動パッド以外）
+        canvas.addEventListener('touchstart', e => {
+            if (!gameRunning) { startGame(); return; }
+            for (let t of e.touches) {
+                if (t.clientX < 180 && t.clientY > H - 180) continue;
+                keys['j'] = true;
+            }
+        });
+        canvas.addEventListener('touchend', () => keys['j'] = false);
+
+        // PCキー
+        window.addEventListener('keydown', e => keys[e.key.toLowerCase()] = true);
+        window.addEventListener('keyup', e => keys[e.key.toLowerCase()] = false);
+
+        function update(ch, isPlayer) {
+            ch.vy += 0.78;
+            ch.x += ch.vx;
+            ch.y += ch.vy;
+            ch.vx *= 0.85;
+
+            ch.onGround = false;
+            for (let p of platforms) {
+                if (ch.x < p.x + p.w && ch.x + 40 > p.x &&
+                    ch.y + 60 > p.y && ch.y + 60 - ch.vy <= p.y) {
+                    ch.y = p.y - 60;
+                    ch.vy = 0;
+                    ch.onGround = true;
+                }
+            }
+
+            if (isPlayer) {
+                if (keys['a']) { ch.vx = -7.2; ch.facing = -1; }
+                if (keys['d']) { ch.vx = 7.2; ch.facing = 1; }
+                if (keys['k'] && ch.onGround) ch.vy = -18.5;
+
+                if (keys['j'] && Date.now() - lastAttack > 160) {
+                    lastAttack = Date.now();
+                    ch.punchCount++;
+                    if (ch.punchCount >= 4) {
+                        ch.state = "smash";
+                        checkHit(ch, cpu, 28);
+                        ch.punchCount = 0;
+                    } else {
+                        ch.state = "punch";
+                        checkHit(ch, cpu, 12);
+                    }
+                    setTimeout(() => ch.state = "idle", 180);
+                }
+            } else {
+                const dx = p1.x - ch.x;
+                if (Math.abs(dx) > 50) ch.vx += Math.sign(dx) * 0.85;
+                if (Math.random() < 0.04 && ch.onGround) ch.vy = -17.5;
+                if (Math.random() < 0.13) {
+                    ch.state = "punch";
+                    checkHit(ch, p1, 13);
+                    setTimeout(() => ch.state = "idle", 220);
+                }
+            }
+
+            if (ch.y > H + 80) {
+                ch.stocks--;
+                ch.x = isPlayer ? W*0.3 : W*0.7;
+                ch.y = H*0.25;
+                ch.vx = ch.vy = 0;
+                ch.damage = 0;
+                ch.punchCount = 0;
+
+                if (ch.stocks <= 0) {
+                    gameRunning = false;
+                    const winText = isPlayer ? "CPU WIN" : "PLAYER 1 WIN!";
+                    document.getElementById('title').innerHTML = winText + "<br><small style='font-size:28px'>タップで再挑戦</small>";
+                    document.getElementById('title').style.display = 'block';
+                }
+            }
+        }
+
+        function checkHit(attacker, target, power) {
+            if (Math.hypot(attacker.x - target.x, attacker.y - target.y) < 78) {
+                target.damage += power;
+                target.vx += attacker.facing * (12 + target.damage / 8);
+                target.vy = -9.5;
+            }
+        }
+
+        function drawChar(ch, color) {
+            ctx.fillStyle = color;
+            ctx.fillRect(ch.x, ch.y, 40, 60);
+            ctx.fillStyle = '#ffddaa';
+            ctx.fillRect(ch.x + 8, ch.y - 18, 24, 25);
+
+            if (ch.state === "punch") {
+                ctx.fillStyle = '#ffff00';
+                ctx.fillRect(ch.x + (ch.facing * 38), ch.y + 15, 48, 22);
+            }
+            if (ch.state === "smash") {
+                ctx.fillStyle = '#ff00ff';
+                ctx.fillRect(ch.x + (ch.facing * 35), ch.y - 15, 65, 40);
+            }
+        }
+
+        function loop() {
+            requestAnimationFrame(loop);
+            ctx.fillStyle = '#112233';
+            ctx.fillRect(0, 0, W, H);
+
+            // ステージ描画
+            ctx.fillStyle = '#557799';
+            platforms.forEach(p => ctx.fillRect(p.x, p.y, p.w, p.h));
+
+            if (gameRunning) {
+                update(p1, true);
+                update(cpu, false);
+            }
+
+            drawChar(p1, '#22aaff');
+            drawChar(cpu, '#ff4444');
+
+            document.getElementById('p1status').textContent = `P1 ${p1.damage}% (${p1.stocks})`;
+            document.getElementById('cpustatus').textContent = `CPU ${cpu.damage}% (${cpu.stocks})`;
+        }
+
+        loop();
+    </script>
+</body>
+</html>
