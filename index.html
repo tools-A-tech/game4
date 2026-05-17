@@ -23,6 +23,15 @@
             background:rgba(0,255,255,0.18); border:5px solid rgba(0,255,255,0.7); 
             border-radius:50%; pointer-events:all; z-index:20;
         }
+
+        #result { 
+            position:absolute; top:50%; left:50%; transform:translate(-50%,-50%);
+            text-align:center; display:none; z-index:30; pointer-events:all;
+        }
+        .btn {
+            display:inline-block; margin:15px; padding:15px 40px; font-size:24px;
+            background:#0ff; color:#000; border-radius:15px; cursor:pointer;
+        }
     </style>
 </head>
 <body>
@@ -32,6 +41,12 @@
         <div class="status" id="p1status">P1 0% (3)</div>
         <div class="status" id="cpustatus">CPU 0% (3)</div>
         <div id="movePad"></div>
+
+        <div id="result">
+            <div id="winText" style="font-size:60px; margin-bottom:20px;"></div>
+            <div class="btn" onclick="restartGame()">もう一度遊ぶ</div>
+            <div class="btn" onclick="goToCatSearch()">やめる</div>
+        </div>
     </div>
 
     <script>
@@ -67,11 +82,26 @@
 
         function startGame() {
             document.getElementById('title').style.display = 'none';
+            document.getElementById('result').style.display = 'none';
             gameRunning = true;
-            p1.x = W*0.3; p1.y = H*0.65;
-            cpu.x = W*0.7; cpu.y = H*0.65;
+            resetCharacters();
         }
 
+        function resetCharacters() {
+            p1.x = W*0.3; p1.y = H*0.65; p1.damage = 0; p1.stocks = 3; p1.punchCount = 0;
+            cpu.x = W*0.7; cpu.y = H*0.65; cpu.damage = 0; cpu.stocks = 3;
+        }
+
+        function restartGame() {
+            document.getElementById('result').style.display = 'none';
+            startGame();
+        }
+
+        function goToCatSearch() {
+            window.location.href = "https://www.google.com/search?q=%E7%8C%AB&udm=2";
+        }
+
+        // タイトル
         document.getElementById('title').addEventListener('click', startGame);
         document.getElementById('title').addEventListener('touchstart', e => { e.preventDefault(); startGame(); });
 
@@ -90,7 +120,7 @@
         });
         movePad.addEventListener('touchend', () => keys['a'] = keys['d'] = keys['k'] = false);
 
-        // 画面のどこでも攻撃
+        // 攻撃
         canvas.addEventListener('touchstart', e => {
             if (!gameRunning) { startGame(); return; }
             for (let t of e.touches) {
@@ -155,6 +185,16 @@
                 ch.vx = ch.vy = 0;
                 ch.damage = 0;
                 ch.punchCount = 0;
+
+                // 勝利判定
+                if (ch.stocks <= 0) {
+                    gameRunning = false;
+                    const winText = isPlayer ? "CPU WIN" : "PLAYER 1 WIN!";
+                    document.getElementById('title').style.display = 'none';
+                    const result = document.getElementById('result');
+                    result.style.display = 'block';
+                    result.querySelector('#winText').innerHTML = winText;
+                }
             }
         }
 
@@ -168,9 +208,9 @@
 
         function drawChar(ch, color) {
             ctx.fillStyle = color;
-            ctx.fillRect(ch.x, ch.y, 40, 60);           // 体
+            ctx.fillRect(ch.x, ch.y, 40, 60);
             ctx.fillStyle = '#ffddaa';
-            ctx.fillRect(ch.x + 8, ch.y - 18, 24, 25); // 頭
+            ctx.fillRect(ch.x + 8, ch.y - 18, 24, 25);
 
             if (ch.state === "punch") {
                 ctx.fillStyle = '#ffff00';
